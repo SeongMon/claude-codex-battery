@@ -1,0 +1,8 @@
+.DS_Store
+*.log
+.codex-refresh-ts
+windows/build/
+windows/*.exe
+
+# Local: pre-customization app backup (not part of the source)
+backup-upstream-build/

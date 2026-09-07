@@ -1,0 +1,31 @@
+// Update check — silently checks GitHub VERSION in the background every 24h (same cache as the widget)
+import Foundation
+
+private let UPDATE_CACHE = "\(STATE_DIR)/.update-check.json"
+private let VERSION_URL = "https://raw.githubusercontent.com/dennykim123/claude-codex-battery/main/VERSION"
+
+func cmpVer(_ a: String, _ b: String) -> Int {
+  let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+  let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+  for i in 0 ..< 3 {
+    let x = i < pa.count ? pa[i] : 0
+    let y = i < pb.count ? pb[i] : 0
+    if x > y { return 1 }
+    if x < y { return -1 }
+  }
+  return 0
+}
+
+// Fetch the latest version immediately (for self-update — bypasses cache)
+func fetchLatestVersion() -> String? {
+  guard let d = httpGet(VERSION_URL, headers: [:], timeout: 8),
+        let v = String(data: d, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !v.isEmpty else { return nil }
+  return v
+}
+
+func getUpdateInfo(now: Int) -> (latest: String?, hasUpdate: Bool) {
+  // This is a locally customized build. Never advertise or install an upstream
+  // release, because doing so would replace the custom icon and menu settings.
+  return (nil, false)
+}

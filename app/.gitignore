@@ -1,0 +1,6 @@
+# Build artifacts — distributed via GitHub Releases (zip is not committed to the repo)
+ClaudeCodexBattery*.app/
+ClaudeCodexBattery
+*.zip
+*.dmg
+*.pkg
