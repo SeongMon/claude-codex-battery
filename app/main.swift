@@ -449,6 +449,42 @@ if let idx = CommandLine.arguments.firstIndex(of: "--render-glint"), CommandLine
   exit(0)
 }
 
+// ── --render-icon <path>: saves the menu bar artwork as a PNG (no screen capture needed).
+// CCB_CAT_STYLE=nyan|slim|slime and CCB_CAT_TEST=sleep|walk|run|dash|panic|happy pick the mascot;
+// --dark renders the dark-mode ink. A second file, <path>.2x.png, is the same image at the size the
+// menu bar actually shows it, so the sprite can be judged at its real scale.
+if let idx = CommandLine.arguments.firstIndex(of: "--render-icon"), CommandLine.arguments.count > idx + 1 {
+  let path = CommandLine.arguments[idx + 1]
+  let snap = collectSnapshot()
+  var items = battItems(snap)
+  if items.isEmpty { items = [BattItem(label: "C5", remain: 72), BattItem(label: "X5", remain: 40)] }
+  let dark = CommandLine.arguments.contains("--dark")
+  let state = catState(snap)
+  print("items:", items.map { "\($0.label)=\($0.remain.map { String(Int($0.rounded())) } ?? "nil")" }
+    .joined(separator: " "), "· style:", currentCatStyle().rawValue, "· state:", state.rawValue)
+  guard let img = renderBatteryImage(dark: dark, items: items, cat: state, catFrameIndex: 0),
+        let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+        let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
+  try? png.write(to: URL(fileURLWithPath: path))
+  print("wrote \(path) — \(rep.pixelsWide)×\(rep.pixelsHigh) px")
+  // Same artwork at menu bar scale: the button shows it at 47% of its logical size (see setButtonImage)
+  let onScreen = NSSize(width: CGFloat(rep.pixelsWide) / 2 * 0.47, height: CGFloat(rep.pixelsHigh) / 2 * 0.47)
+  let devW = Int((onScreen.width * 2).rounded()), devH = Int((onScreen.height * 2).rounded())
+  if let ctx = CGContext(data: nil, width: devW, height: devH, bitsPerComponent: 8, bytesPerRow: 0,
+                         space: CGColorSpaceCreateDeviceRGB(),
+                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+     let src = rep.cgImage {
+    ctx.interpolationQuality = .high
+    ctx.draw(src, in: CGRect(x: 0, y: 0, width: devW, height: devH))
+    if let out = ctx.makeImage(),
+       let d = NSBitmapImageRep(cgImage: out).representation(using: .png, properties: [:]) {
+      try? d.write(to: URL(fileURLWithPath: path + ".2x.png"))
+      print("wrote \(path).2x.png — \(devW)×\(devH) px (as the menu bar shows it on a Retina display)")
+    }
+  }
+  exit(0)
+}
+
 // ── --self-update: checks the latest version and installs it immediately (for headless verification/manual updates) ──
 if CommandLine.arguments.contains("--self-update") {
   print("self-update is disabled for this customized build")

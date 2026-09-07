@@ -195,15 +195,42 @@ private func drawCat(_ cv: Canvas, _ x: Int, _ y: Int, _ style: CatStyle, _ stat
 }
 
 // N capsules + group label (C/X) → NSImage (2x pixels; the caller scales down to the display size)
-// With `cat`, a pixel cat runs at the left edge, facing its battery "finish line".
+// With `cat`, the pixel mascot rides alongside the batteries (see renderModernBatteryImage).
 func renderBatteryImage(dark: Bool, items: [BattItem], glintX: Int? = nil,
                         cat: CatState? = nil, catFrameIndex: Int = 0) -> NSImage? {
-  return renderModernBatteryImage(dark: dark, items: items)
+  return renderModernBatteryImage(dark: dark, items: items, cat: cat, catFrameIndex: catFrameIndex)
+}
+
+// The mascot from CatSprite.swift, painted as 1×1 rects so its pixel grammar survives next to the
+// smooth capsules. The grid runs top-down while the context is bottom-up, so rows are flipped.
+private func drawCatSprite(_ ctx: CGContext, x: Int, canvasHeight: Int, style: CatStyle,
+                           state: CatState, frame: Int, ink: NSColor) {
+  let grid = catFrame(style, state, frame)
+  let baseY = (canvasHeight - CAT_H) / 2
+  ctx.saveGState()
+  ctx.setShouldAntialias(false)
+  for (r, row) in grid.enumerated() {
+    for (c, ch) in row.enumerated() {
+      let colour: NSColor
+      switch ch {
+      case "A", "z": colour = ink
+      case "o": colour = NSColor(srgbRed: 1.0, green: 150 / 255, blue: 50 / 255, alpha: 1)
+      case "r": colour = NSColor(srgbRed: 1.0, green: 70 / 255, blue: 60 / 255, alpha: 1)
+      case "b": colour = NSColor(srgbRed: 90 / 255, green: 180 / 255, blue: 1.0, alpha: 1)
+      case "p": colour = NSColor(srgbRed: 1.0, green: 150 / 255, blue: 170 / 255, alpha: 1)
+      default: continue
+      }
+      ctx.setFillColor(colour.cgColor)
+      ctx.fill(CGRect(x: x + c, y: baseY + (CAT_H - 1 - r), width: 1, height: 1))
+    }
+  }
+  ctx.restoreGState()
 }
 
 // Smooth macOS-style battery indicators. Usage groups keep their C/X label, while
 // the charge is communicated by the familiar rounded outline and coloured fill.
-private func renderModernBatteryImage(dark: Bool, items: [BattItem]) -> NSImage? {
+private func renderModernBatteryImage(dark: Bool, items: [BattItem],
+                                      cat: CatState? = nil, catFrameIndex: Int = 0) -> NSImage? {
   let scale = 2
   let height = 18
   let labelWidth = 9
@@ -213,13 +240,23 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem]) -> NSImage?
   let itemGap = 5
   let groupGap = 7
   let pad = 2
+  let catGap = 3
+
+  // Where the mascot sits: immediately left of the Codex group, so it reads as the divider between
+  // the two sets of batteries. With no Codex batteries on screen it trails the last one instead —
+  // picking a style should always show something.
+  let catStyle = currentCatStyle()
+  let mascot: CatState? = catStyle == .none ? nil : cat
+  let catSpan = mascot != nil ? CAT_W + catGap : 0
+  let catSlot = items.firstIndex { $0.label.first == "X" } // nil → after every battery
 
   var width = pad * 2
   var previousGroup: Character? = nil
-  for item in items {
+  for (i, item) in items.enumerated() {
     let group = item.label.first ?? "?"
     if group != previousGroup {
       if previousGroup != nil { width += groupGap }
+      if i == catSlot { width += catSpan }
       width += labelWidth
       previousGroup = group
     } else {
@@ -227,6 +264,7 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem]) -> NSImage?
     }
     width += bodyWidth + terminalWidth
   }
+  if catSlot == nil { width += catSpan }
 
   guard let context = CGContext(data: nil, width: width * scale, height: height * scale,
                                 bitsPerComponent: 8, bytesPerRow: 0,
@@ -241,10 +279,15 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem]) -> NSImage?
   var x = pad
   previousGroup = nil
 
-  for item in items {
+  for (i, item) in items.enumerated() {
     let group = item.label.first ?? "?"
     if group != previousGroup {
       if previousGroup != nil { x += groupGap }
+      if let m = mascot, i == catSlot {
+        drawCatSprite(context, x: x, canvasHeight: height, style: catStyle,
+                      state: m, frame: catFrameIndex, ink: outline)
+        x += catSpan
+      }
       let attributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
         .foregroundColor: outline
@@ -292,6 +335,10 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem]) -> NSImage?
       context.strokePath()
     }
     x += bodyWidth + terminalWidth
+  }
+  if let m = mascot, catSlot == nil {
+    drawCatSprite(context, x: x + catGap, canvasHeight: height, style: catStyle,
+                  state: m, frame: catFrameIndex, ink: outline)
   }
 
   guard let cgImage = context.makeImage() else { return nil }
