@@ -114,11 +114,9 @@ func isGolden(_ remain: Double?) -> Bool { (remain ?? 0) >= 99.5 }
 private func goldBase(_ dark: Bool) -> RGB { dark ? (255, 184, 0) : (255, 170, 0) }
 private func goldHi(_ dark: Bool) -> RGB { dark ? (255, 226, 110) : (255, 214, 90) }
 
-// Full span of the glint sweep — the length needed for the diagonal to fully cross the capsule
-func batteryGlintSpan() -> Int {
-  let p = currentBattSize() == "small" ? PRESET_SMALL : PRESET_BIG
-  return p.bw + p.bh
-}
+// Full span of the glint sweep — the length the diagonal needs to cross a capsule of the size
+// renderModernBatteryImage draws (its fill, plus the height the diagonal is skewed by)
+func batteryGlintSpan() -> Int { 27 + 12 }
 
 // When altCol/boundaryX is set: if pixel x is left of the fill boundary, use altCol (contrast over the bright fill); if right, use col
 @discardableResult
@@ -198,7 +196,8 @@ private func drawCat(_ cv: Canvas, _ x: Int, _ y: Int, _ style: CatStyle, _ stat
 // With `cat`, the pixel mascot rides alongside the batteries (see renderModernBatteryImage).
 func renderBatteryImage(dark: Bool, items: [BattItem], glintX: Int? = nil,
                         cat: CatState? = nil, catFrameIndex: Int = 0) -> NSImage? {
-  return renderModernBatteryImage(dark: dark, items: items, cat: cat, catFrameIndex: catFrameIndex)
+  return renderModernBatteryImage(dark: dark, items: items, glintX: glintX,
+                                  cat: cat, catFrameIndex: catFrameIndex)
 }
 
 // The mascot from CatSprite.swift, painted one square per sprite pixel so its pixel grammar
@@ -231,9 +230,13 @@ private func drawCatSprite(_ ctx: CGContext, x: Int, canvasHeight: Int, style: C
   ctx.restoreGState()
 }
 
+private func nsColor(_ c: RGB) -> NSColor {
+  NSColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
+}
+
 // Smooth macOS-style battery indicators. Usage groups keep their C/X label, while
 // the charge is communicated by the familiar rounded outline and coloured fill.
-private func renderModernBatteryImage(dark: Bool, items: [BattItem],
+private func renderModernBatteryImage(dark: Bool, items: [BattItem], glintX: Int? = nil,
                                       cat: CatState? = nil, catFrameIndex: Int = 0) -> NSImage? {
   let scale = 2
   let height = 18
@@ -325,11 +328,37 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
       let inner = bodyRect.insetBy(dx: 2.4, dy: 2.4)
       let fillWidth = inner.width * CGFloat(level) / 100
       if fillWidth > 0.5 {
-        let colour: NSColor = level <= 20 ? .systemRed : (level <= 40 ? .systemOrange : .systemGreen)
         let fillRect = CGRect(x: inner.minX, y: inner.minY, width: fillWidth, height: inner.height)
-        context.addPath(CGPath(roundedRect: fillRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil))
-        context.setFillColor(colour.cgColor)
+        let fillPath = CGPath(roundedRect: fillRect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
+        let golden = isGolden(remaining)
+        context.addPath(fillPath)
+        // Untouched limits go gold rather than green, the way upstream marks a full battery; the
+        // traffic-light steps below it are upstream's too (red ≤ 20%, yellow < 50%, green above).
+        context.setFillColor(golden ? nsColor(goldBase(dark)).cgColor
+                             : (level <= 20 ? NSColor.systemRed
+                                : (level < 50 ? NSColor.systemYellow : NSColor.systemGreen)).cgColor)
         context.fillPath()
+        if golden {
+          // Two-tone: a lighter band along the top edge, so gold reads as metal and not as a warning
+          let hi = CGRect(x: fillRect.minX, y: fillRect.maxY - fillRect.height / 3,
+                          width: fillRect.width, height: fillRect.height / 3)
+          context.saveGState()
+          context.addPath(fillPath)
+          context.clip()
+          context.setFillColor(nsColor(goldHi(dark)).cgColor)
+          context.fill(hi)
+          // …and the glint sweep: a diagonal shine crossing the fill, driven by the 30s animation
+          if let g = glintX {
+            context.setFillColor(NSColor(white: 1, alpha: 0.85).cgColor)
+            for step in 0 ..< Int(fillRect.height.rounded()) {
+              let gx = fillRect.minX + CGFloat(g - step) // down-left diagonal, as upstream draws it
+              if gx >= fillRect.minX, gx < fillRect.maxX {
+                context.fill(CGRect(x: gx, y: fillRect.maxY - CGFloat(step) - 1, width: 1.2, height: 1))
+              }
+            }
+          }
+          context.restoreGState()
+        }
       }
     } else {
       context.setStrokeColor(muted.cgColor)

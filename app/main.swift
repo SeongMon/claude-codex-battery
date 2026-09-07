@@ -23,8 +23,10 @@ func swiftBarDuplicate() -> Bool {
 // Batch data collection (called from a background thread)
 func collectSnapshot() -> Snapshot {
   let now = Int(Date().timeIntervalSince1970)
+  let claude = getClaudeUsage(now: now)
+  trackBurnRate(now: now, utilization: claude?.fiveHour?.pct) // feeds catState when ccusage is absent
   return applyTestOverrides(Snapshot(now: now,
-                                     usage: getClaudeUsage(now: now),
+                                     usage: claude,
                                      block: getClaudeBlock(now: now),
                                      models: getClaudeModels(),
                                      codex: getCodex(now: now),
@@ -68,10 +70,18 @@ func catState(_ snap: Snapshot) -> CatState {
      max(0, 100 - w.pct) < 12, ra - snap.now > 1800 { return .panic }
   let items = battItems(snap)
   if !items.isEmpty, items.allSatisfy({ isGolden($0.remain) }) { return .happy }
-  let cph = snap.block?.costPerHour ?? 0
-  if cph < 0.5 { return .sleep }
-  if cph < 8 { return .walk }
-  if cph < 40 { return .run }
+  if let cph = snap.block?.costPerHour { // ccusage installed: upstream's $/hour scale
+    if cph < 0.5 { return .sleep }
+    if cph < 8 { return .walk }
+    if cph < 40 { return .run }
+    return .dash
+  }
+  // Otherwise pace the mascot by how fast the 5-hour window is going (see BurnRate.swift).
+  // Spending the whole window evenly over its five hours is 20%/h, which anchors the scale.
+  guard let rate = currentBurnRate(now: snap.now) else { return .sleep }
+  if rate < 1.5 { return .sleep }
+  if rate < 6 { return .walk }
+  if rate < 14 { return .run }
   return .dash
 }
 
