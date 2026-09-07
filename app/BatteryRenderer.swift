@@ -242,17 +242,17 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
   let bodyHeight = 12
   let terminalWidth = 3
   let itemGap = 5
-  let groupGap = 7
+  let groupGap = 5
   let pad = 2
   let catGap = 3
 
-  // The mascot leads the row, at the left edge ahead of every battery (as upstream draws it), half
-  // again its native grid so the face still reads at this build's compact icon size. 1.5 is the
-  // smallest bump that lands on whole device pixels (the context is 2x, so one sprite pixel is
-  // exactly 3 of them) — anything between leaves the sprite unevenly sampled.
+  // The mascot leads the row, at the left edge ahead of every battery (as upstream draws it), drawn
+  // well above its native grid so the face reads at this build's compact icon size. Whole device
+  // pixels land on the halves (1.5 → 3, 2.0 → 4 in this 2x context); other values sample a little
+  // unevenly, which is invisible at menu bar size but shows up when the artwork is magnified.
   let catStyle = currentCatStyle()
   let mascot: CatState? = catStyle == .none ? nil : cat
-  let catScale: CGFloat = 1.5
+  let catScale: CGFloat = 1.8
   let catSpan = mascot != nil ? Int((CGFloat(CAT_W) * catScale).rounded()) + catGap : 0
 
   var width = pad * 2 + catSpan
