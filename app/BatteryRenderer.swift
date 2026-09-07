@@ -201,12 +201,14 @@ func renderBatteryImage(dark: Bool, items: [BattItem], glintX: Int? = nil,
   return renderModernBatteryImage(dark: dark, items: items, cat: cat, catFrameIndex: catFrameIndex)
 }
 
-// The mascot from CatSprite.swift, painted as 1×1 rects so its pixel grammar survives next to the
-// smooth capsules. The grid runs top-down while the context is bottom-up, so rows are flipped.
+// The mascot from CatSprite.swift, painted one square per sprite pixel so its pixel grammar
+// survives next to the smooth capsules. `scale` sizes that square: the sprite grid is drawn a
+// little larger than the batteries' own units so the face still reads at menu bar size. The grid
+// runs top-down while the context is bottom-up, so rows are flipped.
 private func drawCatSprite(_ ctx: CGContext, x: Int, canvasHeight: Int, style: CatStyle,
-                           state: CatState, frame: Int, ink: NSColor) {
+                           state: CatState, frame: Int, ink: NSColor, scale: CGFloat) {
   let grid = catFrame(style, state, frame)
-  let baseY = (canvasHeight - CAT_H) / 2
+  let baseY = (CGFloat(canvasHeight) - CGFloat(CAT_H) * scale) / 2
   ctx.saveGState()
   ctx.setShouldAntialias(false)
   for (r, row) in grid.enumerated() {
@@ -221,7 +223,9 @@ private func drawCatSprite(_ ctx: CGContext, x: Int, canvasHeight: Int, style: C
       default: continue
       }
       ctx.setFillColor(colour.cgColor)
-      ctx.fill(CGRect(x: x + c, y: baseY + (CAT_H - 1 - r), width: 1, height: 1))
+      ctx.fill(CGRect(x: CGFloat(x) + CGFloat(c) * scale,
+                      y: baseY + CGFloat(CAT_H - 1 - r) * scale,
+                      width: scale, height: scale))
     }
   }
   ctx.restoreGState()
@@ -242,21 +246,19 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
   let pad = 2
   let catGap = 3
 
-  // Where the mascot sits: immediately left of the Codex group, so it reads as the divider between
-  // the two sets of batteries. With no Codex batteries on screen it trails the last one instead —
-  // picking a style should always show something.
+  // The mascot leads the row, at the left edge ahead of every battery (as upstream draws it), one
+  // fifth larger than its native grid so the face still reads at this build's compact icon size.
   let catStyle = currentCatStyle()
   let mascot: CatState? = catStyle == .none ? nil : cat
-  let catSpan = mascot != nil ? CAT_W + catGap : 0
-  let catSlot = items.firstIndex { $0.label.first == "X" } // nil → after every battery
+  let catScale: CGFloat = 1.2
+  let catSpan = mascot != nil ? Int((CGFloat(CAT_W) * catScale).rounded()) + catGap : 0
 
-  var width = pad * 2
+  var width = pad * 2 + catSpan
   var previousGroup: Character? = nil
-  for (i, item) in items.enumerated() {
+  for item in items {
     let group = item.label.first ?? "?"
     if group != previousGroup {
       if previousGroup != nil { width += groupGap }
-      if i == catSlot { width += catSpan }
       width += labelWidth
       previousGroup = group
     } else {
@@ -264,7 +266,6 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
     }
     width += bodyWidth + terminalWidth
   }
-  if catSlot == nil { width += catSpan }
 
   guard let context = CGContext(data: nil, width: width * scale, height: height * scale,
                                 bitsPerComponent: 8, bytesPerRow: 0,
@@ -279,15 +280,16 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
   var x = pad
   previousGroup = nil
 
-  for (i, item) in items.enumerated() {
+  if let m = mascot {
+    drawCatSprite(context, x: x, canvasHeight: height, style: catStyle,
+                  state: m, frame: catFrameIndex, ink: outline, scale: catScale)
+    x += catSpan
+  }
+
+  for item in items {
     let group = item.label.first ?? "?"
     if group != previousGroup {
       if previousGroup != nil { x += groupGap }
-      if let m = mascot, i == catSlot {
-        drawCatSprite(context, x: x, canvasHeight: height, style: catStyle,
-                      state: m, frame: catFrameIndex, ink: outline)
-        x += catSpan
-      }
       let attributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
         .foregroundColor: outline
@@ -335,10 +337,6 @@ private func renderModernBatteryImage(dark: Bool, items: [BattItem],
       context.strokePath()
     }
     x += bodyWidth + terminalWidth
-  }
-  if let m = mascot, catSlot == nil {
-    drawCatSprite(context, x: x + catGap, canvasHeight: height, style: catStyle,
-                  state: m, frame: catFrameIndex, ink: outline)
   }
 
   guard let cgImage = context.makeImage() else { return nil }
